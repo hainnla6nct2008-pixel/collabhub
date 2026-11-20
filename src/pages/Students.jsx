@@ -1,5 +1,6 @@
 
 import { useState, useEffect } from "react";
+import ExcelImport from "../components/ExcelImport";
 
 function Students() {
   const [students, setStudents] = useState(() => {
@@ -15,10 +16,30 @@ function Students() {
     }
 
     return [
-      { id: 1, name: "Nguyen Van An", major: "IT", skills: ["Python", "SQL"] },
-      { id: 2, name: "Tran Minh Duc", major: "IT", skills: ["Java", "HTML"] },
-      { id: 3, name: "Le Thu Ha", major: "Computer Science", skills: ["Python", "AI"] },
-      { id: 4, name: "Pham Quang Huy", major: "Software Engineering", skills: ["React", "CSS"] }
+      {
+        id: 1,
+        name: "Nguyen Van An",
+        major: "IT",
+        skills: ["Python", "SQL"]
+      },
+      {
+        id: 2,
+        name: "Tran Minh Duc",
+        major: "IT",
+        skills: ["Java", "HTML"]
+      },
+      {
+        id: 3,
+        name: "Le Thu Ha",
+        major: "Computer Science",
+        skills: ["Python", "AI"]
+      },
+      {
+        id: 4,
+        name: "Pham Quang Huy",
+        major: "Software Engineering",
+        skills: ["React", "CSS"]
+      }
     ];
   });
 
@@ -26,6 +47,7 @@ function Students() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  const [studentId, setStudentId] = useState("");
   const [name, setName] = useState("");
   const [major, setMajor] = useState("Information Technology");
   const [skills, setSkills] = useState("");
@@ -37,11 +59,19 @@ function Students() {
     );
   }, [students]);
 
-  const filteredStudents = students.filter((student) =>
-    student.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredStudents = students.filter((student) => {
+    const q = search.toLowerCase();
+
+    return (
+      student.name.toLowerCase().includes(q) ||
+      String(student.studentId ?? student.id)
+        .toLowerCase()
+        .includes(q)
+    );
+  });
 
   function resetForm() {
+    setStudentId("");
     setName("");
     setMajor("Information Technology");
     setSkills("");
@@ -56,6 +86,7 @@ function Students() {
 
   function openEditForm(student) {
     setEditingId(student.id);
+    setStudentId(String(student.studentId ?? student.id));
     setName(student.name);
     setMajor(student.major);
     setSkills(student.skills.join(", "));
@@ -65,7 +96,7 @@ function Students() {
   function saveStudent(e) {
     e.preventDefault();
 
-    if (!name.trim()) return;
+    if (!name.trim() || !studentId.trim()) return;
 
     const studentData = {
       name: name.trim(),
@@ -84,20 +115,46 @@ function Students() {
       setStudents((previous) =>
         previous.map((student) =>
           student.id === editingId
-            ? { ...student, ...studentData }
+            ? {
+                ...student,
+                ...studentData
+              }
             : student
         )
       );
     } else {
+      const id = studentId.trim();
+
       const newStudent = {
-        id: Math.max(0, ...students.map((s) => Number(s.id) || 0)) + 1,
+        id,
+        studentId: id,
         ...studentData
       };
 
-      setStudents((previous) => [...previous, newStudent]);
+      setStudents((previous) => [
+        ...previous,
+        newStudent
+      ]);
     }
 
     resetForm();
+  }
+
+  function importStudents(imported) {
+    const newStudents = imported.map((student) => ({
+      id: student.studentId.trim(),
+      studentId: student.studentId.trim(),
+      name: student.name.trim(),
+      major: student.major.trim(),
+      skills: student.skills
+    }));
+
+    setStudents((previous) => [
+      ...previous,
+      ...newStudents
+    ]);
+
+    return newStudents.length;
   }
 
   function deleteStudent(id) {
@@ -131,6 +188,8 @@ function Students() {
         </button>
       </div>
 
+      <ExcelImport onImport={importStudents} />
+
       {showForm && (
         <form className="student-form" onSubmit={saveStudent}>
           <h3>
@@ -138,6 +197,19 @@ function Students() {
               ? "Edit Student"
               : "Add New Student"}
           </h3>
+
+          <label>Student ID</label>
+          <input
+            type="text"
+            placeholder="Example: 2610001"
+            value={studentId}
+            onChange={(e) => setStudentId(e.target.value)}
+            pattern={editingId === null ? "2610[0-9]{3}" : undefined}
+            title="Student ID must have 7 digits, for example 2610001"
+            maxLength={editingId === null ? 7 : undefined}
+            readOnly={editingId !== null}
+            required
+          />
 
           <label>Full Name</label>
           <input
@@ -156,12 +228,15 @@ function Students() {
             <option value="Information Technology">
               Information Technology
             </option>
+
             <option value="Computer Science">
               Computer Science
             </option>
+
             <option value="Software Engineering">
               Software Engineering
             </option>
+
             <option value="IT">IT</option>
           </select>
 
@@ -197,7 +272,7 @@ function Students() {
 
           <input
             type="text"
-            placeholder="Search students..."
+            placeholder="Search by name or Student ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -206,7 +281,7 @@ function Students() {
         <table className="student-table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>Student ID</th>
               <th>Student Name</th>
               <th>Major</th>
               <th>Skills</th>
@@ -215,11 +290,16 @@ function Students() {
           </thead>
 
           <tbody>
-            {filteredStudents.map((student) => (
-              <tr key={student.id}>
-                <td>#{student.id}</td>
+            {filteredStudents.map((student, index) => (
+              <tr key={`${student.id}-${index}`}>
+                <td>
+                  {student.studentId ?? student.id}
+                </td>
+
                 <td>{student.name}</td>
+
                 <td>{student.major}</td>
+
                 <td>
                   {student.skills.map((skill) => (
                     <span className="skill-tag" key={skill}>
@@ -227,6 +307,7 @@ function Students() {
                     </span>
                   ))}
                 </td>
+
                 <td>
                   <div className="student-actions">
                     <button
