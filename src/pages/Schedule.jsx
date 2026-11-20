@@ -1,60 +1,106 @@
+
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 function Schedule() {
-  const [events, setEvents] = useState(() => {
-    try {
-      const saved = localStorage.getItem("collabhub_events");
-
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (error) {
-      console.error("Cannot load events:", error);
-    }
-
-    return [];
-  });
+  const [events, setEvents] = useState([]);
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
   const [type, setType] = useState("Study Session");
 
-  useEffect(() => {
-    localStorage.setItem(
-      "collabhub_events",
-      JSON.stringify(events)
-    );
-  }, [events]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
 
-  function addEvent(e) {
-    e.preventDefault();
+  async function loadEvents() {
+    setLoading(true);
+    setLoadError("");
 
-    if (!title.trim() || !date || !time) return;
+    try {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, title, date, time, type")
+        .order("date", { ascending: true })
+        .order("time", { ascending: true });
 
-    const newEvent = {
-      id: crypto.randomUUID(),
-      title: title.trim(),
-      date,
-      time,
-      type
-    };
+      if (error) throw error;
 
-    setEvents((prev) => [...prev, newEvent]);
-
-    setTitle("");
-    setDate("");
-    setTime("09:00");
-    setType("Study Session");
+      setEvents(data || []);
+    } catch (error) {
+      setLoadError(error.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function deleteEvent(id) {
-    if (!window.confirm("Delete this event?")) return;
+  useEffect(() => {
+    loadEvents();
+  }, []);
 
-    setEvents((prev) =>
-      prev.filter((event) => event.id !== id)
-    );
+  async function addEvent(e) {
+    e.preventDefault();
+
+    if (!title.trim() || !date || !time || saving) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("events")
+        .insert({
+          title: title.trim(),
+          date,
+          time,
+          type
+        });
+
+      if (error) throw error;
+
+      setTitle("");
+      setDate("");
+      setTime("09:00");
+      setType("Study Session");
+
+      await loadEvents();
+      setMessage("Event added successfully.");
+    } catch (error) {
+      setMessage("Failed to add event: " + error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteEvent(id) {
+    if (saving) return;
+
+    if (!window.confirm("Delete this event?")) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("events")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      await loadEvents();
+      setMessage("Event deleted successfully.");
+    } catch (error) {
+      setMessage("Failed to delete event: " + error.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const sortedEvents = [...events].sort((a, b) =>
@@ -70,7 +116,27 @@ function Schedule() {
           <h2>Schedule Management</h2>
           <p>Organize study sessions and group meetings.</p>
         </div>
+
+        <button
+          type="button"
+          onClick={loadEvents}
+          disabled={loading || saving}
+        >
+          {loading ? "Loading..." : "Refresh Events"}
+        </button>
       </div>
+
+      {message && (
+        <p role="status" style={{ marginBottom: "16px" }}>
+          {message}
+        </p>
+      )}
+
+      {loadError && (
+        <p role="alert" style={{ color: "#dc2626" }}>
+          Failed to load events: {loadError}
+        </p>
+      )}
 
       <div className="schedule-layout">
         <form className="schedule-form" onSubmit={addEvent}>
@@ -112,15 +178,21 @@ function Schedule() {
             <option>Extracurricular</option>
           </select>
 
-          <button className="primary-btn" type="submit">
-            + Add Event
+          <button
+            className="primary-btn"
+            type="submit"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "+ Add Event"}
           </button>
         </form>
 
         <div className="events-card">
           <h3>Scheduled Events ({events.length})</h3>
 
-          {sortedEvents.length === 0 ? (
+          {loading ? (
+            <p>Loading events from Supabase...</p>
+          ) : sortedEvents.length === 0 ? (
             <p className="empty-message">
               No events scheduled yet.
             </p>
@@ -130,17 +202,21 @@ function Schedule() {
                 <div className="event-item" key={event.id}>
                   <div className="event-details">
                     <h4>{event.title}</h4>
+
                     <p>
-                      {event.date} · {event.time}
+                      {event.date} · {event.time?.slice(0, 5)}
                     </p>
+
                     <span className="event-type">
                       {event.type}
                     </span>
                   </div>
 
                   <button
+                    type="button"
                     className="delete-btn"
                     onClick={() => deleteEvent(event.id)}
+                    disabled={saving}
                   >
                     Delete
                   </button>

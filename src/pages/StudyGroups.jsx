@@ -1,33 +1,85 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 import {
   generateSmartGroups,
   calculateGroupDiversity
 } from "../algorithms/groupAlgorithm";
 
-function readStorage(key) {
-  try {
-    const data = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
 function StudyGroups() {
-  const [students] = useState(() =>
-    readStorage("collabhub_students")
-  );
-
-  const [groups, setGroups] = useState(() =>
-    readStorage("collabhub_groups")
-  );
+  const [students, setStudents] = useState([]);
+  const [groups, setGroups] = useState([]);
 
   const [groupSize, setGroupSize] = useState(4);
+  const [selectedIds, setSelectedIds] = useState([]);
 
-  const [selectedIds, setSelectedIds] = useState(() =>
-    students.map((student) => student.id)
-  );
+  const [loading, setLoading] = useState(true);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function loadGroups() {
+    setGroupsLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("study_group_sets")
+        .select("groups")
+        .eq("id", "main")
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setGroups(
+        Array.isArray(data?.groups) ? data.groups : []
+      );
+      setMessage("");
+    } catch (err) {
+      setMessage("Failed to load groups: " + err.message);
+    } finally {
+      setGroupsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadStudents() {
+      setLoading(true);
+      setError("");
+
+      const { data, error: loadError } = await supabase
+        .from("students")
+        .select("id, name, major, skills")
+        .order("id", { ascending: true });
+
+      if (!active) return;
+
+      if (loadError) {
+        setError(loadError.message);
+        setStudents([]);
+        setSelectedIds([]);
+      } else {
+        const list = data || [];
+
+        setStudents(list);
+        setSelectedIds(list.map((s) => s.id));
+      }
+
+      setLoading(false);
+    }
+
+    loadStudents();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    loadGroups();
+  }, []);
 
   function toggleStudent(id) {
     setSelectedIds((previous) =>
@@ -45,7 +97,9 @@ function StudyGroups() {
     setSelectedIds([]);
   }
 
-  function generateGroups() {
+  async function generateGroups() {
+    if (loading || groupsLoading || saving || error) return;
+
     const selectedStudents = students.filter((student) =>
       selectedIds.includes(student.id)
     );
@@ -55,26 +109,68 @@ function StudyGroups() {
       return;
     }
 
-    const result = generateSmartGroups(
-      selectedStudents,
-      groupSize
-    );
+    setSaving(true);
+    setMessage("");
 
-    setGroups(result);
+    try {
+      const result = generateSmartGroups(
+        selectedStudents,
+        groupSize
+      );
 
-    localStorage.setItem(
-      "collabhub_groups",
-      JSON.stringify(result)
-    );
+      const { error: saveError } = await supabase
+        .from("study_group_sets")
+        .upsert(
+          {
+            id: "main",
+            groups: result,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "id" }
+        );
+
+      if (saveError) throw saveError;
+
+      setGroups(result);
+      setMessage("Groups saved to Supabase successfully.");
+    } catch (err) {
+      setMessage("Failed to save groups: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function deleteGroups() {
+  async function deleteGroups() {
+    if (saving || groupsLoading) return;
+
     if (!window.confirm("Delete all generated groups?")) {
       return;
     }
 
-    setGroups([]);
-    localStorage.setItem("collabhub_groups", "[]");
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("study_group_sets")
+        .upsert(
+          {
+            id: "main",
+            groups: [],
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "id" }
+        );
+
+      if (deleteError) throw deleteError;
+
+      setGroups([]);
+      setMessage("All shared groups deleted.");
+    } catch (err) {
+      setMessage("Failed to delete groups: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -82,11 +178,23 @@ function StudyGroups() {
       <div className="page-heading">
         <div>
           <h2>Study Groups</h2>
-          <p>
-            Create balanced groups based on student skills.
-          </p>
+          <p>Create balanced groups based on student skills.</p>
         </div>
+
+        <button
+          type="button"
+          onClick={loadGroups}
+          disabled={saving || groupsLoading}
+        >
+          {groupsLoading ? "Loading..." : "Refresh Groups"}
+        </button>
       </div>
+
+      {message && (
+        <p role="status" style={{ marginBottom: "16px" }}>
+          {message}
+        </p>
+      )}
 
       <div className="generator-card">
         <h3>Smart Group Generator</h3>
@@ -96,23 +204,41 @@ function StudyGroups() {
           number of members per group.
         </p>
 
+        {loading && (
+          <p>Loading students from Supabase...</p>
+        )}
+
+        {error && (
+          <p role="alert" style={{ color: "#dc2626" }}>
+            Failed to load students: {error}
+          </p>
+        )}
+
         <div className="selection-header">
           <h3>
             Select Students ({selectedIds.length}/{students.length})
           </h3>
 
           <div className="selection-actions">
-            <button onClick={selectAll}>
+            <button
+              type="button"
+              onClick={selectAll}
+              disabled={loading || Boolean(error)}
+            >
               Select All
             </button>
 
-            <button onClick={clearSelection}>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={loading || Boolean(error)}
+            >
               Clear
             </button>
           </div>
         </div>
 
-        {students.length === 0 ? (
+        {!loading && !error && students.length === 0 ? (
           <p>
             No students found. Please add students
             in the Students page first.
@@ -128,6 +254,7 @@ function StudyGroups() {
                   type="checkbox"
                   checked={selectedIds.includes(student.id)}
                   onChange={() => toggleStudent(student.id)}
+                  disabled={loading || Boolean(error)}
                 />
 
                 <div>
@@ -170,25 +297,33 @@ function StudyGroups() {
           </div>
 
           <button
+            type="button"
             className="primary-btn"
             onClick={generateGroups}
-            disabled={selectedIds.length === 0}
+            disabled={
+              loading ||
+              groupsLoading ||
+              saving ||
+              Boolean(error) ||
+              selectedIds.length === 0
+            }
           >
-            Generate Smart Groups
+            {saving ? "Saving..." : "Generate Smart Groups"}
           </button>
         </div>
       </div>
 
-      {groups.length > 0 && (
+      {groupsLoading && <p>Loading shared groups...</p>}
+
+      {!groupsLoading && groups.length > 0 && (
         <div className="groups-result">
           <div className="groups-result-header">
-            <h3>
-              Generated Groups ({groups.length})
-            </h3>
+            <h3>Generated Groups ({groups.length})</h3>
 
             <button
               className="delete-btn"
               onClick={deleteGroups}
+              disabled={saving}
             >
               Delete All Groups
             </button>

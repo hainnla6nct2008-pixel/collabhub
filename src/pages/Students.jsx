@@ -1,79 +1,58 @@
 
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 import ExcelImport from "../components/ExcelImport";
 
 function Students() {
-  const [students, setStudents] = useState(() => {
-    try {
-      const saved = localStorage.getItem("collabhub_students");
-
-      if (saved !== null) {
-        const data = JSON.parse(saved);
-        if (Array.isArray(data)) return data;
-      }
-    } catch (error) {
-      console.error("Cannot load students:", error);
-    }
-
-    return [
-      {
-        id: 1,
-        name: "Nguyen Van An",
-        major: "IT",
-        skills: ["Python", "SQL"]
-      },
-      {
-        id: 2,
-        name: "Tran Minh Duc",
-        major: "IT",
-        skills: ["Java", "HTML"]
-      },
-      {
-        id: 3,
-        name: "Le Thu Ha",
-        major: "Computer Science",
-        skills: ["Python", "AI"]
-      },
-      {
-        id: 4,
-        name: "Pham Quang Huy",
-        major: "Software Engineering",
-        skills: ["React", "CSS"]
-      }
-    ];
-  });
-
+  const [students, setStudents] = useState([]);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const [studentId, setStudentId] = useState("");
   const [name, setName] = useState("");
-  const [major, setMajor] = useState("Information Technology");
+  const [major, setMajor] = useState("");
   const [skills, setSkills] = useState("");
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadStudents() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, name, major, skills")
+      .order("id", { ascending: true });
+
+    if (error) {
+      setMessage("Load failed: " + error.message);
+    } else {
+      setStudents(data || []);
+      setMessage("");
+    }
+
+    setLoading(false);
+  }
+
   useEffect(() => {
-    localStorage.setItem(
-      "collabhub_students",
-      JSON.stringify(students)
-    );
-  }, [students]);
+    loadStudents();
+  }, []);
 
   const filteredStudents = students.filter((student) => {
     const q = search.toLowerCase();
 
     return (
       student.name.toLowerCase().includes(q) ||
-      String(student.studentId ?? student.id)
-        .toLowerCase()
-        .includes(q)
+      String(student.id).toLowerCase().includes(q)
     );
   });
 
   function resetForm() {
     setStudentId("");
     setName("");
-    setMajor("Information Technology");
+    setMajor("");
     setSkills("");
     setEditingId(null);
     setShowForm(false);
@@ -86,87 +65,98 @@ function Students() {
 
   function openEditForm(student) {
     setEditingId(student.id);
-    setStudentId(String(student.studentId ?? student.id));
+    setStudentId(student.id);
     setName(student.name);
     setMajor(student.major);
-    setSkills(student.skills.join(", "));
+    setSkills((student.skills || []).join(", "));
     setShowForm(true);
   }
 
-  function saveStudent(e) {
+  async function saveStudent(e) {
     e.preventDefault();
 
-    if (!name.trim() || !studentId.trim()) return;
+    if (!studentId.trim() || !name.trim()) return;
+
+    setSaving(true);
+    setMessage("");
 
     const studentData = {
       name: name.trim(),
       major,
       skills: [
         ...new Set(
-          skills
-            .split(",")
-            .map((skill) => skill.trim())
+          skills.split(",")
+            .map((s) => s.trim())
             .filter(Boolean)
         )
       ]
     };
 
+    let error;
+
     if (editingId !== null) {
-      setStudents((previous) =>
-        previous.map((student) =>
-          student.id === editingId
-            ? {
-                ...student,
-                ...studentData
-              }
-            : student
-        )
-      );
+      ({ error } = await supabase
+        .from("students")
+        .update(studentData)
+        .eq("id", editingId));
     } else {
-      const id = studentId.trim();
+      ({ error } = await supabase
+        .from("students")
+        .insert({
+          id: studentId.trim(),
+          ...studentData
+        }));
+    }
 
-      const newStudent = {
-        id,
-        studentId: id,
-        ...studentData
-      };
+    setSaving(false);
 
-      setStudents((previous) => [
-        ...previous,
-        newStudent
-      ]);
+    if (error) {
+      setMessage("Save failed: " + error.message);
+      return;
     }
 
     resetForm();
+    await loadStudents();
   }
 
-  function importStudents(imported) {
-    const newStudents = imported.map((student) => ({
-      id: student.studentId.trim(),
-      studentId: student.studentId.trim(),
+  async function importStudents(imported) {
+    const rows = imported.map((student) => ({
+      id: String(student.studentId).trim(),
       name: student.name.trim(),
       major: student.major.trim(),
       skills: student.skills
     }));
 
-    setStudents((previous) => [
-      ...previous,
-      ...newStudents
-    ]);
+    const { error } = await supabase
+      .from("students")
+      .insert(rows);
 
-    return newStudents.length;
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await loadStudents();
+    return rows.length;
   }
 
-  function deleteStudent(id) {
+  async function deleteStudent(id) {
     if (!window.confirm("Delete this student?")) return;
 
-    setStudents((previous) =>
-      previous.filter((student) => student.id !== id)
-    );
+    const { error } = await supabase
+      .from("students")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setMessage("Delete failed: " + error.message);
+      return;
+    }
 
     if (editingId === id) {
       resetForm();
     }
+
+    await loadStudents();
   }
 
   return (
@@ -190,6 +180,12 @@ function Students() {
 
       <ExcelImport onImport={importStudents} />
 
+      {message && (
+        <p role="status" style={{ marginBottom: "16px" }}>
+          {message}
+        </p>
+      )}
+
       {showForm && (
         <form className="student-form" onSubmit={saveStudent}>
           <h3>
@@ -205,7 +201,7 @@ function Students() {
             value={studentId}
             onChange={(e) => setStudentId(e.target.value)}
             pattern={editingId === null ? "2610[0-9]{3}" : undefined}
-            title="Student ID must have 7 digits, for example 2610001"
+            title="Example: 2610001"
             maxLength={editingId === null ? 7 : undefined}
             readOnly={editingId !== null}
             required
@@ -220,25 +216,16 @@ function Students() {
             required
           />
 
-          <label>Major</label>
-          <select
-            value={major}
-            onChange={(e) => setMajor(e.target.value)}
-          >
-            <option value="Information Technology">
-              Information Technology
-            </option>
+          
+            <label>Major</label>
+            <input
+              type="text"
+              placeholder="Enter your major"
+              value={major}
+              onChange={(e) => setMajor(e.target.value)}
+              required
+            />
 
-            <option value="Computer Science">
-              Computer Science
-            </option>
-
-            <option value="Software Engineering">
-              Software Engineering
-            </option>
-
-            <option value="IT">IT</option>
-          </select>
 
           <label>Skills (separated by commas)</label>
           <input
@@ -249,16 +236,23 @@ function Students() {
           />
 
           <div className="form-actions">
-            <button className="primary-btn" type="submit">
-              {editingId !== null
-                ? "Save Changes"
-                : "Save Student"}
+            <button
+              className="primary-btn"
+              type="submit"
+              disabled={saving}
+            >
+              {saving
+                ? "Saving..."
+                : editingId !== null
+                  ? "Save Changes"
+                  : "Save Student"}
             </button>
 
             <button
               type="button"
               className="cancel-btn"
               onClick={resetForm}
+              disabled={saving}
             >
               Cancel
             </button>
@@ -278,59 +272,59 @@ function Students() {
           />
         </div>
 
-        <table className="student-table">
-          <thead>
-            <tr>
-              <th>Student ID</th>
-              <th>Student Name</th>
-              <th>Major</th>
-              <th>Skills</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredStudents.map((student, index) => (
-              <tr key={`${student.id}-${index}`}>
-                <td>
-                  {student.studentId ?? student.id}
-                </td>
-
-                <td>{student.name}</td>
-
-                <td>{student.major}</td>
-
-                <td>
-                  {student.skills.map((skill) => (
-                    <span className="skill-tag" key={skill}>
-                      {skill}
-                    </span>
-                  ))}
-                </td>
-
-                <td>
-                  <div className="student-actions">
-                    <button
-                      className="edit-btn"
-                      onClick={() => openEditForm(student)}
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      className="delete-btn"
-                      onClick={() => deleteStudent(student.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
+        {loading ? (
+          <p>Loading students from Supabase...</p>
+        ) : (
+          <table className="student-table">
+            <thead>
+              <tr>
+                <th>Student ID</th>
+                <th>Student Name</th>
+                <th>Major</th>
+                <th>Skills</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
 
-        {filteredStudents.length === 0 && (
+            <tbody>
+              {filteredStudents.map((student) => (
+                <tr key={student.id}>
+                  <td>{student.id}</td>
+                  <td>{student.name}</td>
+                  <td>{student.major}</td>
+
+                  <td>
+                    {(student.skills || []).map((skill) => (
+                      <span className="skill-tag" key={skill}>
+                        {skill}
+                      </span>
+                    ))}
+                  </td>
+
+                  <td>
+                    <div className="student-actions">
+                      <button
+                        className="edit-btn"
+                        onClick={() => openEditForm(student)}
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        className="delete-btn"
+                        onClick={() => deleteStudent(student.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {!loading && filteredStudents.length === 0 && (
           <p>No students found.</p>
         )}
       </div>

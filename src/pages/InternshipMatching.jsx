@@ -1,24 +1,11 @@
 
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 import { matchStudents } from "../algorithms/internshipAlgorithm";
 
-function readData(key) {
-  try {
-    const data = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-function InternshipMatching({ internships, onAssign }) {
-  const [students] = useState(() =>
-    readData("collabhub_students")
-  );
-
-  const [positions, setPositions] = useState(() =>
-    readData("collabhub_positions")
-  );
+function InternshipMatching({ internships = [], onAssign }) {
+  const [students, setStudents] = useState([]);
+  const [positions, setPositions] = useState([]);
 
   const [company, setCompany] = useState("");
   const [positionName, setPositionName] = useState("");
@@ -27,15 +14,72 @@ function InternshipMatching({ internships, onAssign }) {
   const [selectedId, setSelectedId] = useState("");
   const [results, setResults] = useState([]);
 
-  useEffect(() => {
-    localStorage.setItem(
-      "collabhub_positions",
-      JSON.stringify(positions)
-    );
-  }, [positions]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [assigningId, setAssigningId] = useState(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  function addPosition(e) {
+  async function loadData() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [studentResult, positionResult] =
+        await Promise.all([
+          supabase
+            .from("students")
+            .select("id, name, major, skills")
+            .order("id", { ascending: true }),
+
+          supabase
+            .from("internship_positions")
+            .select("id, company, name, required_skills")
+            .order("created_at", { ascending: false })
+        ]);
+
+      if (studentResult.error) {
+        throw studentResult.error;
+      }
+
+      if (positionResult.error) {
+        throw positionResult.error;
+      }
+
+      setStudents(studentResult.data || []);
+
+      const list = (positionResult.data || []).map(
+        (item) => ({
+          id: item.id,
+          company: item.company,
+          name: item.name,
+          requiredSkills: item.required_skills || []
+        })
+      );
+
+      setPositions(list);
+      setResults([]);
+
+      setSelectedId((previous) =>
+        list.some((item) => item.id === previous)
+          ? previous
+          : ""
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function addPosition(e) {
     e.preventDefault();
+
+    if (saving) return;
 
     const requiredSkills = [
       ...new Set(
@@ -54,21 +98,31 @@ function InternshipMatching({ internships, onAssign }) {
       return;
     }
 
-    const newPosition = {
-      id: crypto.randomUUID(),
-      company: company.trim(),
-      name: positionName.trim(),
-      requiredSkills
-    };
+    setSaving(true);
+    setMessage("");
 
-    setPositions((previous) => [
-      ...previous,
-      newPosition
-    ]);
+    try {
+      const { error } = await supabase
+        .from("internship_positions")
+        .insert({
+          company: company.trim(),
+          name: positionName.trim(),
+          required_skills: requiredSkills
+        });
 
-    setCompany("");
-    setPositionName("");
-    setSkills("");
+      if (error) throw error;
+
+      setCompany("");
+      setPositionName("");
+      setSkills("");
+
+      await loadData();
+      setMessage("Position added successfully.");
+    } catch (err) {
+      setMessage("Failed to add position: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function findMatches() {
@@ -89,30 +143,77 @@ function InternshipMatching({ internships, onAssign }) {
     setResults(matchStudents(students, position));
   }
 
-function assignMatchedStudent(student) {
-  const position = positions.find(
-    (item) => item.id === selectedId
-  );
-
-  if (!position) {
-    alert("Please select an internship position.");
-    return;
-  }
-
-  onAssign(student, position);
-}
-
-  function deletePosition(id) {
-    if (!window.confirm("Delete this position?")) return;
-
-    setPositions((previous) =>
-      previous.filter((item) => item.id !== id)
+  async function assignMatchedStudent(student) {
+    const position = positions.find(
+      (item) => item.id === selectedId
     );
 
-    if (selectedId === id) {
-      setSelectedId("");
-      setResults([]);
+    if (!position) {
+      alert("Please select an internship position.");
+      return;
     }
+
+    if (assigningId !== null) return;
+
+    setAssigningId(student.id);
+
+    try {
+      await onAssign(student, position);
+    } finally {
+      setAssigningId(null);
+    }
+  }
+
+  async function deletePosition(id) {
+    if (saving) return;
+
+    if (!window.confirm("Delete this position?")) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("internship_positions")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      if (selectedId === id) {
+        setSelectedId("");
+        setResults([]);
+      }
+
+      await loadData();
+      setMessage("Position deleted successfully.");
+    } catch (err) {
+      setMessage("Failed to delete position: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function isAssigned(student) {
+    const position = positions.find(
+      (item) => item.id === selectedId
+    );
+
+    if (!position) return false;
+
+    return internships.some((item) => {
+      const sameStudent = item.studentId != null
+        ? String(item.studentId) === String(student.id)
+        : item.student === student.name;
+
+      return (
+        sameStudent &&
+        item.company === position.company &&
+        item.position === position.name
+      );
+    });
   }
 
   return (
@@ -122,7 +223,27 @@ function assignMatchedStudent(student) {
         <p>
           Find students who match company requirements.
         </p>
+
+        <button
+          type="button"
+          onClick={loadData}
+          disabled={loading || saving}
+        >
+          {loading ? "Loading..." : "Refresh Matching"}
+        </button>
       </div>
+
+      {error && (
+        <p role="alert" style={{ color: "#dc2626" }}>
+          Failed to load matching data: {error}
+        </p>
+      )}
+
+      {message && (
+        <p role="status">
+          {message}
+        </p>
+      )}
 
       <div className="matching-layout">
         <form
@@ -155,8 +276,12 @@ function assignMatchedStudent(student) {
             required
           />
 
-          <button className="primary-btn" type="submit">
-            + Add Position
+          <button
+            className="primary-btn"
+            type="submit"
+            disabled={loading || saving || Boolean(error)}
+          >
+            {saving ? "Saving..." : "+ Add Position"}
           </button>
         </form>
 
@@ -167,6 +292,7 @@ function assignMatchedStudent(student) {
 
           <select
             value={selectedId}
+            disabled={loading || saving}
             onChange={(e) => {
               setSelectedId(e.target.value);
               setResults([]);
@@ -189,7 +315,13 @@ function assignMatchedStudent(student) {
             className="primary-btn"
             type="button"
             onClick={findMatches}
-            disabled={!selectedId || students.length === 0}
+            disabled={
+              loading ||
+              saving ||
+              Boolean(error) ||
+              !selectedId ||
+              students.length === 0
+            }
           >
             Find Matching Students
           </button>
@@ -199,7 +331,9 @@ function assignMatchedStudent(student) {
       <div className="matching-card">
         <h3>Available Positions ({positions.length})</h3>
 
-        {positions.length === 0 ? (
+        {loading ? (
+          <p>Loading positions from Supabase...</p>
+        ) : positions.length === 0 ? (
           <p>No internship positions yet.</p>
         ) : (
           positions.map((item) => (
@@ -216,7 +350,9 @@ function assignMatchedStudent(student) {
               </div>
 
               <button
+                type="button"
                 className="delete-btn"
+                disabled={saving}
                 onClick={() => deletePosition(item.id)}
               >
                 Delete
@@ -230,80 +366,59 @@ function assignMatchedStudent(student) {
         <div className="matching-card">
           <h3>Recommended Students</h3>
 
-          {results.map((student, index) => (
-            <div className="match-result" key={student.id}>
-              <div className="match-result-header">
-                <div>
-                  <strong>
-                    #{index + 1} {student.name}
+          {results.map((student, index) => {
+            const assigned = isAssigned(student);
+
+            return (
+              <div className="match-result" key={student.id}>
+                <div className="match-result-header">
+                  <div>
+                    <strong>
+                      #{index + 1} {student.name}
+                    </strong>
+                    <p>{student.major}</p>
+                  </div>
+
+                  <strong className="match-score">
+                    {student.score}%
                   </strong>
-                  <p>{student.major}</p>
                 </div>
 
-                <strong className="match-score">
-                  {student.score}%
-                </strong>
+                <div className="match-progress">
+                  <div
+                    style={{ width: `${student.score}%` }}
+                  />
+                </div>
+
+                <p>
+                  Matched Skills:{" "}
+                  {student.matchedSkills.join(", ") || "None"}
+                </p>
+
+                <p>
+                  Missing Skills:{" "}
+                  {student.missingSkills.join(", ") || "None"}
+                </p>
+
+                <button
+                  type="button"
+                  className="primary-btn assign-btn"
+                  disabled={
+                    assigned ||
+                    assigningId !== null ||
+                    saving
+                  }
+                  onClick={() => assignMatchedStudent(student)}
+                >
+                  {assigned
+                    ? "Assigned"
+                    : assigningId === student.id
+                      ? "Assigning..."
+                      : "Assign Student"}
+                </button>
               </div>
-
-              <div className="match-progress">
-                <div
-                  style={{ width: `${student.score}%` }}
-                />
-              </div>
-
-              <p>
-                Matched Skills:{" "}
-                {student.matchedSkills.join(", ") || "None"}
-              </p>
-
-              <p>
-                Missing Skills:{" "}
-                {student.missingSkills.join(", ") || "None"}
-              </p>
-              
-<button
-  type="button"
-  className="primary-btn assign-btn"
-  disabled={internships.some((item) => {
-    const position = positions.find(
-      (p) => p.id === selectedId
-    );
-
-    if (!position) return false;
-
-    const sameStudent = item.studentId != null
-      ? String(item.studentId) === String(student.id)
-      : item.student === student.name;
-
-    return (
-      sameStudent &&
-      item.company === position.company &&
-      item.position === position.name
-    );
-  })}
-  onClick={() => assignMatchedStudent(student)}
->
-  {internships.some((item) => {
-    const position = positions.find(
-      (p) => p.id === selectedId
-    );
-
-    if (!position) return false;
-
-    const sameStudent = item.studentId != null
-      ? String(item.studentId) === String(student.id)
-      : item.student === student.name;
-
-    return (
-      sameStudent &&
-      item.company === position.company &&
-      item.position === position.name
-    );
-  }) ? "Assigned" : "Assign Student"}
-</button>
-
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

@@ -176,20 +176,32 @@ setPreview(students);
     }
   }
 
-  function confirmImport() {
-    try {
-      const count = onImport(preview);
+  
+async function confirmImport() {
+  if (loading || preview.length === 0) return;
 
-      setMessage(
-        `Import successful: ${count} new students added. ` +
-        `${preview.length - count} duplicates skipped.`
-      );
+  setLoading(true);
+  setMessage("");
 
-      setPreview([]);
-    } catch (error) {
-      setMessage("Import failed: " + error.message);
-    }
+  try {
+    const count = await onImport(preview);
+
+    setMessage(
+      `Import successful: ${count} students added to Supabase.`
+    );
+
+    setPreview([]);
+  } catch (error) {
+    console.error("Excel import error:", error);
+
+    setMessage(
+      "Import failed: " + error.message
+    );
+  } finally {
+    setLoading(false);
   }
+}
+
 
   function cancelImport() {
     setPreview([]);
@@ -274,6 +286,7 @@ setPreview(students);
               type="button"
               className="excel-confirm-btn"
               onClick={confirmImport}
+              disabled={loading}
             >
               Confirm Import
             </button>
