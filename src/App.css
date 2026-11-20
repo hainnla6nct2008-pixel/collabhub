@@ -1508,3 +1508,55 @@ form.matching-card {
   place-items: center;
 }
 
+/* AUTH SIGN UP */
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 5px;
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+.auth-tabs button {
+  flex: 1;
+  border: none;
+  padding: 11px;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  background: #4158d8;
+  color: white;
+}
+
+.auth-card .auth-success {
+  color: #15803d;
+  background: #f0fdf4;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: left;
+}
+
+.auth-switch {
+  text-align: center;
+  font-size: 14px;
+}
+
+.auth-switch button {
+  border: none;
+  background: transparent;
+  color: #4158d8;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-switch button:hover {
+  text-decoration: underline;
+}
+
