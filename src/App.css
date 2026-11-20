@@ -1560,3 +1560,34 @@ form.matching-card {
   text-decoration: underline;
 }
 
+.auth-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auth-role {
+  color: #4158d8;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.student-readonly {
+  padding: 12px 16px;
+  margin: 16px 0;
+  background: #f1f5f9;
+  color: #475569;
+  border-left: 4px solid #64748b;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
