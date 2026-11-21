@@ -1,12 +1,16 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
+import useUserRole from "../hooks/useUserRole";
 import {
   generateSmartGroups,
   calculateGroupDiversity
 } from "../algorithms/groupAlgorithm";
 
 function StudyGroups() {
+  const { isAdmin, loadingRole, roleError } = useUserRole();
+  const canManage = !loadingRole && isAdmin;
+
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
 
@@ -36,7 +40,9 @@ function StudyGroups() {
       );
       setMessage("");
     } catch (err) {
-      setMessage("Failed to load groups: " + err.message);
+      setMessage(
+        "Failed to load groups: " + err.message
+      );
     } finally {
       setGroupsLoading(false);
     }
@@ -82,6 +88,8 @@ function StudyGroups() {
   }, []);
 
   function toggleStudent(id) {
+    if (!canManage) return;
+
     setSelectedIds((previous) =>
       previous.includes(id)
         ? previous.filter((studentId) => studentId !== id)
@@ -90,15 +98,28 @@ function StudyGroups() {
   }
 
   function selectAll() {
+    if (!canManage) return;
+
     setSelectedIds(students.map((s) => s.id));
   }
 
   function clearSelection() {
+    if (!canManage) return;
+
     setSelectedIds([]);
   }
 
   async function generateGroups() {
-    if (loading || groupsLoading || saving || error) return;
+    if (!canManage) {
+      setMessage(
+        "Permission denied: only Admin can generate groups."
+      );
+      return;
+    }
+
+    if (loading || groupsLoading || saving || error) {
+      return;
+    }
 
     const selectedStudents = students.filter((student) =>
       selectedIds.includes(student.id)
@@ -132,15 +153,26 @@ function StudyGroups() {
       if (saveError) throw saveError;
 
       setGroups(result);
-      setMessage("Groups saved to Supabase successfully.");
+      setMessage(
+        "Groups saved to Supabase successfully."
+      );
     } catch (err) {
-      setMessage("Failed to save groups: " + err.message);
+      setMessage(
+        "Failed to save groups: " + err.message
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteGroups() {
+    if (!canManage) {
+      setMessage(
+        "Permission denied: only Admin can delete groups."
+      );
+      return;
+    }
+
     if (saving || groupsLoading) return;
 
     if (!window.confirm("Delete all generated groups?")) {
@@ -167,7 +199,9 @@ function StudyGroups() {
       setGroups([]);
       setMessage("All shared groups deleted.");
     } catch (err) {
-      setMessage("Failed to delete groups: " + err.message);
+      setMessage(
+        "Failed to delete groups: " + err.message
+      );
     } finally {
       setSaving(false);
     }
@@ -178,7 +212,12 @@ function StudyGroups() {
       <div className="page-heading">
         <div>
           <h2>Study Groups</h2>
-          <p>Create balanced groups based on student skills.</p>
+
+          <p>
+            {canManage
+              ? "Create balanced groups based on student skills."
+              : "View study groups and member skills."}
+          </p>
         </div>
 
         <button
@@ -186,166 +225,246 @@ function StudyGroups() {
           onClick={loadGroups}
           disabled={saving || groupsLoading}
         >
-          {groupsLoading ? "Loading..." : "Refresh Groups"}
+          {groupsLoading
+            ? "Loading..."
+            : "Refresh Groups"}
         </button>
       </div>
 
+      {roleError && (
+        <p role="alert" className="auth-error">
+          Unable to load permissions: {roleError}
+        </p>
+      )}
+
+      {loadingRole && (
+        <p>Checking account permissions...</p>
+      )}
+
+      {!loadingRole && !canManage && (
+        <p className="student-readonly">
+          Read-only access: only Admin can generate
+          or delete study groups.
+        </p>
+      )}
+
       {message && (
-        <p role="status" style={{ marginBottom: "16px" }}>
+        <p
+          role="status"
+          style={{ marginBottom: "16px" }}
+        >
           {message}
         </p>
       )}
 
-      <div className="generator-card">
-        <h3>Smart Group Generator</h3>
+      {canManage && (
+        <div className="generator-card">
+          <h3>Smart Group Generator</h3>
 
-        <p>
-          Select students and choose the maximum
-          number of members per group.
-        </p>
-
-        {loading && (
-          <p>Loading students from Supabase...</p>
-        )}
-
-        {error && (
-          <p role="alert" style={{ color: "#dc2626" }}>
-            Failed to load students: {error}
-          </p>
-        )}
-
-        <div className="selection-header">
-          <h3>
-            Select Students ({selectedIds.length}/{students.length})
-          </h3>
-
-          <div className="selection-actions">
-            <button
-              type="button"
-              onClick={selectAll}
-              disabled={loading || Boolean(error)}
-            >
-              Select All
-            </button>
-
-            <button
-              type="button"
-              onClick={clearSelection}
-              disabled={loading || Boolean(error)}
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-
-        {!loading && !error && students.length === 0 ? (
           <p>
-            No students found. Please add students
-            in the Students page first.
+            Select students and choose the maximum
+            number of members per group.
           </p>
-        ) : (
-          <div className="student-selection-grid">
-            {students.map((student) => (
-              <label
-                className="select-student-card"
-                key={student.id}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(student.id)}
-                  onChange={() => toggleStudent(student.id)}
-                  disabled={loading || Boolean(error)}
-                />
 
-                <div>
-                  <strong>{student.name}</strong>
-                  <p>{student.major}</p>
+          {loading && (
+            <p>Loading students from Supabase...</p>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              style={{ color: "#dc2626" }}
+            >
+              Failed to load students: {error}
+            </p>
+          )}
+
+          <div className="selection-header">
+            <h3>
+              Select Students (
+              {selectedIds.length}/{students.length})
+            </h3>
+
+            <div className="selection-actions">
+              <button
+                type="button"
+                onClick={selectAll}
+                disabled={
+                  loading ||
+                  saving ||
+                  Boolean(error)
+                }
+              >
+                Select All
+              </button>
+
+              <button
+                type="button"
+                onClick={clearSelection}
+                disabled={
+                  loading ||
+                  saving ||
+                  Boolean(error)
+                }
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {!loading &&
+          !error &&
+          students.length === 0 ? (
+            <p>
+              No students found. Please add students
+              in the Students page first.
+            </p>
+          ) : (
+            <div className="student-selection-grid">
+              {students.map((student) => (
+                <label
+                  className="select-student-card"
+                  key={student.id}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(
+                      student.id
+                    )}
+                    onChange={() =>
+                      toggleStudent(student.id)
+                    }
+                    disabled={
+                      loading ||
+                      saving ||
+                      Boolean(error)
+                    }
+                  />
 
                   <div>
-                    {(student.skills || []).map((skill) => (
-                      <span
-                        className="skill-tag"
-                        key={skill}
-                      >
-                        {skill}
-                      </span>
-                    ))}
+                    <strong>{student.name}</strong>
+
+                    <p>{student.major}</p>
+
+                    <div>
+                      {(student.skills || []).map(
+                        (skill) => (
+                          <span
+                            className="skill-tag"
+                            key={skill}
+                          >
+                            {skill}
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div className="generator-controls">
+            <div>
+              <label htmlFor="group-size">
+                Maximum students per group
               </label>
-            ))}
-          </div>
-        )}
 
-        <div className="generator-controls">
-          <div>
-            <label>Maximum students per group</label>
+              <select
+                id="group-size"
+                value={groupSize}
+                onChange={(e) =>
+                  setGroupSize(
+                    Number(e.target.value)
+                  )
+                }
+                disabled={saving}
+              >
+                <option value={2}>2 students</option>
+                <option value={3}>3 students</option>
+                <option value={4}>4 students</option>
+                <option value={5}>5 students</option>
+                <option value={6}>6 students</option>
+                <option value={8}>8 students</option>
+              </select>
+            </div>
 
-            <select
-              value={groupSize}
-              onChange={(e) =>
-                setGroupSize(Number(e.target.value))
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={generateGroups}
+              disabled={
+                loading ||
+                groupsLoading ||
+                saving ||
+                Boolean(error) ||
+                selectedIds.length === 0
               }
             >
-              <option value={2}>2 students</option>
-              <option value={3}>3 students</option>
-              <option value={4}>4 students</option>
-              <option value={5}>5 students</option>
-              <option value={6}>6 students</option>
-              <option value={8}>8 students</option>
-            </select>
+              {saving
+                ? "Saving..."
+                : "Generate Smart Groups"}
+            </button>
           </div>
-
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={generateGroups}
-            disabled={
-              loading ||
-              groupsLoading ||
-              saving ||
-              Boolean(error) ||
-              selectedIds.length === 0
-            }
-          >
-            {saving ? "Saving..." : "Generate Smart Groups"}
-          </button>
         </div>
-      </div>
+      )}
 
-      {groupsLoading && <p>Loading shared groups...</p>}
+      {groupsLoading && (
+        <p>Loading shared groups...</p>
+      )}
+
+      {!groupsLoading && groups.length === 0 && (
+        <div className="table-card">
+          <p>No study groups have been generated yet.</p>
+        </div>
+      )}
 
       {!groupsLoading && groups.length > 0 && (
         <div className="groups-result">
           <div className="groups-result-header">
-            <h3>Generated Groups ({groups.length})</h3>
+            <h3>
+              Generated Groups ({groups.length})
+            </h3>
 
-            <button
-              className="delete-btn"
-              onClick={deleteGroups}
-              disabled={saving}
-            >
-              Delete All Groups
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                className="delete-btn"
+                onClick={deleteGroups}
+                disabled={saving}
+              >
+                {saving
+                  ? "Processing..."
+                  : "Delete All Groups"}
+              </button>
+            )}
           </div>
 
           <div className="groups-grid">
             {groups.map((group, index) => {
-              const metrics = calculateGroupDiversity(group);
+              const metrics =
+                calculateGroupDiversity(group);
 
               const skills = [
                 ...new Set(
-                  group.flatMap((student) =>
-                    student.skills || []
+                  group.flatMap(
+                    (student) =>
+                      student.skills || []
                   )
                 )
               ];
 
               return (
-                <div className="group-card" key={index}>
+                <div
+                  className="group-card"
+                  key={index}
+                >
                   <div className="group-card-header">
                     <h3>Group {index + 1}</h3>
-                    <span>{group.length} members</span>
+
+                    <span>
+                      {group.length} members
+                    </span>
                   </div>
 
                   {group.map((student) => (
@@ -353,17 +472,21 @@ function StudyGroups() {
                       className="group-member"
                       key={student.id}
                     >
-                      <strong>{student.name}</strong>
+                      <strong>
+                        {student.name}
+                      </strong>
 
                       <div>
-                        {(student.skills || []).map((skill) => (
-                          <span
-                            className="skill-tag"
-                            key={skill}
-                          >
-                            {skill}
-                          </span>
-                        ))}
+                        {(student.skills || []).map(
+                          (skill) => (
+                            <span
+                              className="skill-tag"
+                              key={skill}
+                            >
+                              {skill}
+                            </span>
+                          )
+                        )}
                       </div>
                     </div>
                   ))}
@@ -371,18 +494,29 @@ function StudyGroups() {
                   <div className="group-metrics">
                     <div>
                       <span>Unique Skills</span>
-                      <strong>{metrics.uniqueSkills}</strong>
+
+                      <strong>
+                        {metrics.uniqueSkills}
+                      </strong>
                     </div>
 
                     <div>
                       <span>Skill Diversity</span>
-                      <strong>{metrics.diversity}%</strong>
+
+                      <strong>
+                        {metrics.diversity}%
+                      </strong>
                     </div>
                   </div>
 
                   <div className="group-skills-summary">
-                    <strong>Group Skills:</strong>
-                    <p>{skills.join(", ") || "None"}</p>
+                    <strong>
+                      Group Skills:
+                    </strong>
+
+                    <p>
+                      {skills.join(", ") || "None"}
+                    </p>
                   </div>
                 </div>
               );
