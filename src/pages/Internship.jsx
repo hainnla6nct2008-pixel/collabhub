@@ -11,6 +11,7 @@ function Internship() {
   const [myRegistration, setMyRegistration] = useState(null);
   const [studentId, setStudentId] = useState("");
   const [fullName, setFullName] = useState("");
+  const [studentSkills, setStudentSkills] = useState("");
   const [internships, setInternships] = useState([]);
   const [positions, setPositions] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -36,13 +37,14 @@ function Internship() {
 
       const { data: registration, error: registrationError } = await supabase
         .from("internship_registrations")
-        .select("user_id, student_id, full_name")
+        .select("user_id, student_id, full_name, skills")
         .eq("user_id", uid)
         .maybeSingle();
       if (registrationError) throw registrationError;
       setMyRegistration(registration);
       setStudentId(registration?.student_id || "");
       setFullName(registration?.full_name || "");
+      setStudentSkills((registration?.skills || []).join(", "));
 
       const { data: records, error: recordError } = await supabase
         .from("internships")
@@ -54,7 +56,7 @@ function Internship() {
       if (canManage) {
         const [r, p] = await Promise.all([
           supabase.from("internship_registrations")
-            .select("user_id, student_id, full_name")
+            .select("user_id, student_id, full_name, skills")
             .order("created_at", { ascending: false }),
           supabase.from("internship_positions")
             .select("id, company, name, required_skills")
@@ -110,6 +112,10 @@ function Internship() {
       setMessage("Student ID must be 7 digits starting with 2610, and name is required.");
       return;
     }
+    if (!studentSkills.split(",").some((s) => s.trim())) {
+      setMessage("Please enter at least one skill.");
+      return;
+    }
     setSaving(true);
     setMessage("");
     try {
@@ -119,6 +125,7 @@ function Internship() {
           user_id: userId,
           student_id: id,
           full_name: name,
+          skills: [...new Set(studentSkills.split(",").map((s) => s.trim()).filter(Boolean))],
           updated_at: new Date().toISOString()
         }, { onConflict: "user_id" });
       if (error) throw error;
@@ -274,6 +281,13 @@ function Internship() {
           <input id="intern-student-name" value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             placeholder="Your full name" required />
+          <label htmlFor="intern-student-skills">Skills (separated by commas)</label>
+          <input id="intern-student-skills" value={studentSkills}
+            onChange={(e) => setStudentSkills(e.target.value)}
+            placeholder="Python, Java, SQL, Communication" required />
+          <p style={{ color: "#64748b", fontSize: 13 }}>
+            Add the skills you already have. Admin will use them for internship matching.
+          </p>
           <button className="primary-btn" type="submit" disabled={saving || loading || !userId}>
             {saving ? "Saving..." : myRegistration ? "Update Registration" : "Register"}
           </button>
@@ -288,10 +302,13 @@ function Internship() {
             {registrations.length === 0 ? <p>No registrations yet.</p> : (
               <div style={{ overflowX: "auto" }}>
                 <table className="student-table">
-                  <thead><tr><th>Student ID</th><th>Full Name</th><th>Assignment</th></tr></thead>
+                  <thead><tr><th>Student ID</th><th>Full Name</th><th>Skills</th><th>Assignment</th></tr></thead>
                   <tbody>{registrations.map((r) => (
                     <tr key={r.user_id}>
                       <td>{r.student_id}</td><td>{r.full_name}</td>
+                      <td>{(r.skills || []).length ? (r.skills || []).map((skill) => (
+                        <span className="skill-tag" key={skill}>{skill}</span>
+                      )) : "Not specified"}</td>
                       <td>{internships.some((i) => i.user_id === r.user_id)
                         ? "Assigned" : "Waiting"}</td>
                     </tr>

@@ -22,7 +22,7 @@ function InternshipMatching({ internships = [], onAssign }) {
     try {
       const [registrations, profiles, positionResult] = await Promise.all([
         supabase.from("internship_registrations")
-          .select("user_id, student_id, full_name"),
+          .select("user_id, student_id, full_name, skills"),
         supabase.from("students").select("id, name, major, skills"),
         supabase.from("internship_positions")
           .select("id, company, name, required_skills")
@@ -39,7 +39,7 @@ function InternshipMatching({ internships = [], onAssign }) {
           id: reg.student_id,
           name: reg.full_name,
           major: profile?.major || "Not specified",
-          skills: profile?.skills || [],
+          skills: reg.skills || [],
           user_id: reg.user_id
         };
       }));
