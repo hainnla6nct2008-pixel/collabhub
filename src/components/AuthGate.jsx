@@ -1,8 +1,11 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import useUserRole from "../hooks/useUserRole";
 
 function AuthGate({ children }) {
+  const { role, loadingRole, roleError } = useUserRole();
+
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
 
@@ -18,16 +21,20 @@ function AuthGate({ children }) {
   useEffect(() => {
     let active = true;
 
-    const { data: { subscription } } =
-      supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(
+      (event, session) => {
         if (!active) return;
 
         setUser(session?.user ?? null);
         setChecking(false);
-      });
+      }
+    );
 
     async function checkUser() {
-      const { data, error } = await supabase.auth.getUser();
+      const { data, error } =
+        await supabase.auth.getUser();
 
       if (!active) return;
 
@@ -35,7 +42,7 @@ function AuthGate({ children }) {
         console.warn("Auth check:", error.message);
       }
 
-      setUser(data.user ?? null);
+      setUser(data?.user ?? null);
       setChecking(false);
     }
 
@@ -65,7 +72,9 @@ function AuthGate({ children }) {
 
     if (mode === "signup") {
       if (password.length < 8) {
-        setError("Password must contain at least 8 characters.");
+        setError(
+          "Password must contain at least 8 characters."
+        );
         return;
       }
 
@@ -79,8 +88,8 @@ function AuthGate({ children }) {
 
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth
-          .signInWithPassword({
+        const { error } =
+          await supabase.auth.signInWithPassword({
             email: email.trim(),
             password
           });
@@ -93,13 +102,14 @@ function AuthGate({ children }) {
           window.location.origin
         ).href;
 
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            emailRedirectTo: redirectUrl
-          }
-        });
+        const { data, error } =
+          await supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: {
+              emailRedirectTo: redirectUrl
+            }
+          });
 
         if (error) throw error;
 
@@ -107,32 +117,49 @@ function AuthGate({ children }) {
         setConfirmPassword("");
 
         if (data.session) {
-          setMessage("Account created successfully.");
+          setMessage(
+            "Account created successfully."
+          );
         } else {
           setMessage(
-            "Please check your email to confirm your " +
-            "account, then return and sign in."
+            "Please check your email to confirm " +
+            "your account, then return and sign in."
           );
         }
       }
     } catch (err) {
-      setError(err.message);
+      setError(
+        err?.message || "An unexpected error occurred."
+      );
     } finally {
       setLoading(false);
     }
   }
 
   async function handleLogout() {
+    if (loading) return;
+
     setLoading(true);
     setError("");
+    setMessage("");
 
-    const { error } = await supabase.auth.signOut();
+    try {
+      const { error } =
+        await supabase.auth.signOut();
 
-    if (error) {
-      setError(error.message);
+      if (error) throw error;
+
+      setUser(null);
+      setPassword("");
+      setConfirmPassword("");
+      setMode("login");
+    } catch (err) {
+      setError(
+        err?.message || "Unable to log out."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   if (checking) {
@@ -167,7 +194,9 @@ function AuthGate({ children }) {
           <div className="auth-tabs">
             <button
               type="button"
-              className={mode === "login" ? "active" : ""}
+              className={
+                mode === "login" ? "active" : ""
+              }
               onClick={() => switchMode("login")}
               disabled={loading}
             >
@@ -176,7 +205,9 @@ function AuthGate({ children }) {
 
             <button
               type="button"
-              className={mode === "signup" ? "active" : ""}
+              className={
+                mode === "signup" ? "active" : ""
+              }
               onClick={() => switchMode("signup")}
               disabled={loading}
             >
@@ -184,35 +215,53 @@ function AuthGate({ children }) {
             </button>
           </div>
 
-          <label>Email Address</label>
+          <label htmlFor="auth-email">
+            Email Address
+          </label>
+
           <input
+            id="auth-email"
             type="email"
             placeholder="student@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) =>
+              setEmail(e.target.value)
+            }
             autoComplete="email"
             required
           />
 
-          <label>Password</label>
+          <label htmlFor="auth-password">
+            Password
+          </label>
+
           <input
+            id="auth-password"
             type="password"
             placeholder="Enter your password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
             autoComplete={
               mode === "login"
                 ? "current-password"
                 : "new-password"
             }
-            minLength={mode === "signup" ? 8 : undefined}
+            minLength={
+              mode === "signup" ? 8 : undefined
+            }
             required
           />
 
           {mode === "signup" && (
             <>
-              <label>Confirm Password</label>
+              <label htmlFor="auth-confirm">
+                Confirm Password
+              </label>
+
               <input
+                id="auth-confirm"
                 type="password"
                 placeholder="Re-enter your password"
                 value={confirmPassword}
@@ -227,13 +276,19 @@ function AuthGate({ children }) {
           )}
 
           {error && (
-            <p className="auth-error" role="alert">
+            <p
+              className="auth-error"
+              role="alert"
+            >
               {error}
             </p>
           )}
 
           {message && (
-            <p className="auth-success" role="status">
+            <p
+              className="auth-success"
+              role="status"
+            >
               {message}
             </p>
           )}
@@ -261,7 +316,9 @@ function AuthGate({ children }) {
               type="button"
               onClick={() =>
                 switchMode(
-                  mode === "login" ? "signup" : "login"
+                  mode === "login"
+                    ? "signup"
+                    : "login"
                 )
               }
               disabled={loading}
@@ -279,7 +336,30 @@ function AuthGate({ children }) {
   return (
     <>
       <div className="auth-topbar">
-        <span>{user.email}</span>
+        <div className="auth-user-info">
+          <span>{user.email}</span>
+
+          <strong className="auth-role">
+            {loadingRole
+              ? "(Checking role...)"
+              : role === "admin"
+                ? "(Admin)"
+                : role === "student"
+                  ? "(Student)"
+                  : "(No role)"}
+          </strong>
+        </div>
+
+        {roleError && (
+          <span
+            role="alert"
+            className="auth-error"
+          >
+            Could not load account role:
+            {" "}
+            {roleError}
+          </span>
+        )}
 
         <button
           type="button"
@@ -287,11 +367,16 @@ function AuthGate({ children }) {
           className="auth-logout"
           disabled={loading}
         >
-          {loading ? "Processing..." : "Log Out"}
+          {loading
+            ? "Processing..."
+            : "Log Out"}
         </button>
 
         {error && (
-          <span role="alert" className="auth-error">
+          <span
+            role="alert"
+            className="auth-error"
+          >
             {error}
           </span>
         )}
